@@ -1,0 +1,10 @@
+{
+  "prior_period": {"eligibility": 1, "snapshot": 1, "heartbeat": 1},
+  "current_periods": [
+    {"eligibility": null, "snapshot": null, "heartbeat": null},
+    {"eligibility": 1, "snapshot": 1, "heartbeat": null},
+    {"eligibility": null, "snapshot": 1, "heartbeat": null},
+    {"eligibility": 1, "snapshot": null, "heartbeat": 1},
+    {"eligibility": null, "snapshot": null, "heartbeat": 1}
+  ]
+}

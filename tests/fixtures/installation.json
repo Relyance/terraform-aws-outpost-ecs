@@ -1,0 +1,203 @@
+{
+  "deployment_id": "ecs-fixture",
+  "route_revision": 1,
+  "execution_project_id": "ecs-fixture",
+  "schema_version": 1,
+  "execution_platform": "ecs",
+  "runtime_mode": "inhost",
+  "aws_account_id": "111111111111",
+  "aws_partition": "aws",
+  "aws_region": "us-west-2",
+  "tenant_record_id": "synthetic-tenant-record",
+  "work_store": {
+    "bucket": "ecs-fixture-work",
+    "prefix": "work/",
+    "region": "us-west-2",
+    "owner_account_id": "111111111111"
+  },
+  "findings_store": {
+    "bucket": "ecs-fixture-findings",
+    "prefix": "findings/",
+    "region": "us-west-2",
+    "owner_account_id": "111111111111"
+  },
+  "redis": {
+    "host": "redis.fixture.internal",
+    "port": 6379,
+    "secret_arn": "arn:aws:secretsmanager:us-west-2:111111111111:secret:ecs-fixture-redis-AbCdEf",
+    "tls": true,
+    "cluster_mode": false,
+    "broker_db": 0,
+    "results_db": 1,
+    "coordination_db": 2,
+    "data_pipelines_db": 3
+  },
+  "federation": {
+    "issuer": "https://fixture-issuer.tokens.sts.global.api.aws",
+    "provider": "//iam.googleapis.com/projects/111111111111/locations/global/workloadIdentityPools/ecs-fixture/providers/ecs-fixture",
+    "audience": "https://iam.googleapis.com/projects/111111111111/locations/global/workloadIdentityPools/ecs-fixture/providers/ecs-fixture"
+  },
+  "exporter": {
+    "task_role_arn": "arn:aws:iam::111111111111:role/ecs-fixture-exporter",
+    "google_service_account": "ecs-exporter@ecs-fixture.iam.gserviceaccount.com",
+    "image_digest": "111111111111.dkr.ecr.us-west-2.amazonaws.com/fixture/exporter@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "publish_topic_paths": []
+  },
+  "pools": [
+    {
+      "task_role_arn": "arn:aws:iam::111111111111:role/ecs-fixture-sampler",
+      "google_service_account": "ecs-sampler@ecs-fixture.iam.gserviceaccount.com",
+      "image_digest": "111111111111.dkr.ecr.us-west-2.amazonaws.com/fixture/sampler@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "role": "sampler",
+      "enabled": true,
+      "cpu_units": 8192,
+      "memory_mib": 49152,
+      "scratch_gib": 40,
+      "min_tasks": 0,
+      "max_tasks": 3,
+      "slots_per_task": 1,
+      "capacity_provider": "ecs-sampler",
+      "run_job_mode": true,
+      "distributed_run_job_mode": true,
+      "source": {
+        "deployment_id": "ecs-fixture",
+        "route_revision": 1,
+        "execution_project_id": "ecs-fixture",
+        "kind": "pubsub",
+        "subscription_path": "projects/ecs-fixture/subscriptions/ecs-sampler",
+        "storage_regions": [
+          "us-west2"
+        ]
+      },
+      "service_name": "ecs-fixture-sampler",
+      "publish_topic_paths": [
+        "projects/ecs-fixture/topics/fixture-sampler"
+      ]
+    },
+    {
+      "task_role_arn": "arn:aws:iam::111111111111:role/ecs-fixture-analyzer",
+      "google_service_account": "ecs-analyzer@ecs-fixture.iam.gserviceaccount.com",
+      "image_digest": "111111111111.dkr.ecr.us-west-2.amazonaws.com/fixture/analyzer@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "role": "analyzer",
+      "enabled": true,
+      "cpu_units": 8192,
+      "memory_mib": 49152,
+      "scratch_gib": 40,
+      "min_tasks": 0,
+      "max_tasks": 3,
+      "slots_per_task": 1,
+      "capacity_provider": "ecs-analyzer",
+      "run_job_mode": true,
+      "distributed_run_job_mode": true,
+      "source": {
+        "deployment_id": "ecs-fixture",
+        "route_revision": 1,
+        "execution_project_id": "ecs-fixture",
+        "kind": "pubsub",
+        "subscription_path": "projects/ecs-fixture/subscriptions/ecs-analyzer",
+        "storage_regions": [
+          "us-west2"
+        ]
+      },
+      "service_name": "ecs-fixture-analyzer",
+      "publish_topic_paths": [
+        "projects/ecs-fixture/topics/fixture-analyzer"
+      ]
+    },
+    {
+      "task_role_arn": "arn:aws:iam::111111111111:role/ecs-fixture-sampler-worker",
+      "google_service_account": "ecs-sampler-worker@ecs-fixture.iam.gserviceaccount.com",
+      "image_digest": "111111111111.dkr.ecr.us-west-2.amazonaws.com/fixture/sampler-worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "role": "sampler-worker",
+      "enabled": true,
+      "cpu_units": 8192,
+      "memory_mib": 49152,
+      "scratch_gib": 40,
+      "min_tasks": 0,
+      "max_tasks": 3,
+      "slots_per_task": 1,
+      "capacity_provider": "ecs-sampler-worker",
+      "run_job_mode": true,
+      "distributed_run_job_mode": true,
+      "source": {
+        "deployment_id": "ecs-fixture",
+        "route_revision": 1,
+        "execution_project_id": "ecs-fixture",
+        "kind": "redis",
+        "queue_name": "gai_sampler_subcall_queue",
+        "database": 0
+      },
+      "service_name": "ecs-fixture-sampler-worker",
+      "publish_topic_paths": []
+    },
+    {
+      "task_role_arn": "arn:aws:iam::111111111111:role/ecs-fixture-analyzer-worker",
+      "google_service_account": "ecs-analyzer-worker@ecs-fixture.iam.gserviceaccount.com",
+      "image_digest": "111111111111.dkr.ecr.us-west-2.amazonaws.com/fixture/analyzer-worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "role": "analyzer-worker",
+      "enabled": true,
+      "cpu_units": 8192,
+      "memory_mib": 49152,
+      "scratch_gib": 40,
+      "min_tasks": 0,
+      "max_tasks": 3,
+      "slots_per_task": 1,
+      "capacity_provider": "ecs-analyzer-worker",
+      "run_job_mode": true,
+      "distributed_run_job_mode": true,
+      "source": {
+        "deployment_id": "ecs-fixture",
+        "route_revision": 1,
+        "execution_project_id": "ecs-fixture",
+        "kind": "redis",
+        "queue_name": "gai_analyzer_queue",
+        "database": 0
+      },
+      "service_name": "ecs-fixture-analyzer-worker",
+      "publish_topic_paths": []
+    },
+    {
+      "task_role_arn": "arn:aws:iam::111111111111:role/ecs-fixture-data-pipelines",
+      "google_service_account": "ecs-data-pipelines@ecs-fixture.iam.gserviceaccount.com",
+      "image_digest": "111111111111.dkr.ecr.us-west-2.amazonaws.com/fixture/data-pipelines@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "role": "data-pipelines",
+      "enabled": true,
+      "cpu_units": 8192,
+      "memory_mib": 49152,
+      "scratch_gib": 40,
+      "min_tasks": 0,
+      "max_tasks": 3,
+      "slots_per_task": 2,
+      "capacity_provider": "ecs-data-pipelines",
+      "run_job_mode": true,
+      "distributed_run_job_mode": true,
+      "source": {
+        "deployment_id": "ecs-fixture",
+        "route_revision": 1,
+        "execution_project_id": "ecs-fixture",
+        "kind": "pubsub",
+        "subscription_path": "projects/ecs-fixture/subscriptions/ecs-data-pipelines",
+        "storage_regions": [
+          "us-west2"
+        ]
+      },
+      "service_name": "ecs-fixture-data-pipelines",
+      "publish_topic_paths": [
+        "projects/ecs-fixture/topics/fixture-data-pipelines"
+      ]
+    }
+  ],
+  "ecs_cluster_arn": "arn:aws:ecs:us-west-2:111111111111:cluster/ecs-fixture",
+  "inventory_store": {
+    "bucket": "ecs-fixture-inventory",
+    "prefix": "inventory/",
+    "region": "us-west-2",
+    "owner_account_id": "111111111111"
+  },
+  "outbox_store": {
+    "bucket": "ecs-fixture-outbox",
+    "prefix": "outbox/",
+    "region": "us-west-2",
+    "owner_account_id": "111111111111"
+  }
+}

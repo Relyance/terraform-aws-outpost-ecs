@@ -144,7 +144,7 @@ resource "aws_ecs_service" "worker" {
   }
   tags = merge(local.tags, { WorkerRole = each.key })
   lifecycle { ignore_changes = [desired_count] }
-  depends_on = [terraform_data.contract, aws_ecs_cluster.main, aws_ecs_cluster_capacity_providers.main, aws_ecs_capacity_provider.worker, aws_iam_role_policy.worker, aws_iam_role_policy.execution]
+  depends_on = [terraform_data.contract, aws_ecs_cluster.main, aws_ecs_cluster_capacity_providers.main, aws_ecs_capacity_provider.worker, aws_iam_role_policy.worker, aws_iam_role_policy.execution, aws_ecs_service.redis]
 }
 resource "aws_ecs_task_definition" "exporter" {
   family                   = "${local.name}-exporter"
@@ -191,5 +191,5 @@ resource "aws_ecs_service" "exporter" {
     assign_public_ip = false
   }
   tags       = local.tags
-  depends_on = [terraform_data.contract, aws_ecs_cluster.main, aws_iam_role_policy.exporter, aws_iam_role_policy.execution]
+  depends_on = [terraform_data.contract, aws_ecs_cluster.main, aws_iam_role_policy.exporter, aws_iam_role_policy.execution, aws_ecs_service.redis]
 }

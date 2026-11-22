@@ -120,6 +120,28 @@ variable "provision_redis" {
   type    = bool
   default = true
 }
+variable "ecs_redis" {
+  description = "Opt-in singleton Redis service on Fargate, backed by an encrypted EFS volume. Omit to retain ElastiCache or the supplied endpoint."
+  type = object({
+    image_digest        = string
+    dns_namespace       = string
+    tls_secret_arn      = string
+    secret_kms_key_arns = optional(set(string), [])
+    cpu_units           = optional(number, 1024)
+    memory_mib          = optional(number, 2048)
+    start               = optional(bool, false)
+  })
+  default = null
+  validation {
+    condition = var.ecs_redis == null || try(
+      can(regex("^[0-9]{12}\\.dkr\\.ecr\\.[a-z0-9-]+\\.amazonaws\\.com/[a-z0-9][a-z0-9_./-]*@sha256:[a-f0-9]{64}$", var.ecs_redis.image_digest)) &&
+      length(var.ecs_redis.dns_namespace) <= 247 && length(split(".", var.ecs_redis.dns_namespace)) >= 2 &&
+      alltrue([for label in split(".", var.ecs_redis.dns_namespace) : can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", label))]),
+      false
+    )
+    error_message = "ECS Redis requires a digest-pinned ECR image and a valid private DNS namespace."
+  }
+}
 variable "existing_redis_verified" {
   description = "Operator verified existing endpoint: provisioned nonclustered Redis, TLS/auth, persistent Multi-AZ replica, exact installation host/secret and exporter read-only ACL."
   type        = bool

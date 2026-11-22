@@ -11,10 +11,10 @@ resource "aws_security_group" "instance" {
   tags        = local.tags
 }
 locals {
-  redis_security_group_id = var.provision_redis ? aws_security_group.redis[0].id : var.existing_redis_security_group_id
+  redis_security_group_id = local.manage_redis_security_group ? aws_security_group.redis[0].id : var.existing_redis_security_group_id
 }
 resource "aws_security_group" "redis" {
-  count       = var.provision_redis ? 1 : 0
+  count       = local.manage_redis_security_group ? 1 : 0
   name_prefix = "${local.name}-redis-"
   description = "TLS Redis accessible only from installation task ENIs"
   vpc_id      = var.vpc_id

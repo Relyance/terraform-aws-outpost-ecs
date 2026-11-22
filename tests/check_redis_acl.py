@@ -17,8 +17,7 @@ import uuid
 from urllib.parse import urlsplit
 
 source = (Path(__file__).resolve().parents[1] / "redis.tf").read_text()
-worker = source.split('resource "aws_elasticache_user" "worker" {', 1)[1].split('\nresource ', 1)[0]
-acl = re.search(r'access_string\s*=\s*"([^"]+)"', worker).group(1)
+acl = re.search(r'redis_worker_access\s*=\s*"([^"]+)"', source).group(1)
 name = "inhost-acl-test-" + uuid.uuid4().hex[:12]
 image = os.environ.get("REDIS_IMAGE", "redis:7-alpine")
 

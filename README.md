@@ -16,8 +16,7 @@ Terraform 1.13.4 and OpenTofu 1.13.2 in separate provider/lock contexts. Both pr
 
 ```hcl
 module "ecs" {
-  source    = "assets.relyance.ai/relyance/ecs/aws"
-  version   = "0.1.1"
+  source    = "../.."
   providers = { aws = aws, aws.secrets = aws }
   installation_facts = jsondecode(file("installation.json"))
   vpc_id = var.vpc_id
@@ -58,9 +57,20 @@ image repositories. Alternatively, use an approved customer-owned registry mirro
 in the installation facts. Verify an actual image pull as the new execution role before setting
 `activated=true`.
 
+### Hosted output transfer before activation
+
+For installations that use federated AWS output transfer, give the Relyance
+onboarding operator the exact output-reader role ARN registered for the route.
+The hosted GAIOT job must map that ARN to the intended AWS bootstrap role in
+`GAIOT_AWS_BOOTSTRAP_ROLES_JSON`. The bootstrap must trust the job's Google
+service account and be authorized to assume the reader with the installation's
+external ID. Verify the map entry and AWS trust before activating the route.
+During the test scan, verify a successful hosted transfer receipt for the same
+root as the worker output.
+
 ### Fargate
 
-Use `examples/ecs-fargate` from the module archive with the supplied installation facts and
+Use `examples/ecs-fargate` with the existing installation facts format and
 `capacity_provider = "FARGATE"` for each enabled scan role. Omit `capacity` for
 Fargate roles. An existing cluster must already have `FARGATE` associated.
 Worker CPU and memory must be a valid Linux Fargate pairing. The UAT task
@@ -140,7 +150,7 @@ The accepted root continues to determine the resource catalogue.
 
 ## Redis and private networking
 
-Provisioning defaults to nonclustered Redis7.1, primary/replica, Multi-AZ automatic
+With `ecs_redis` omitted, provisioning defaults to ElastiCache with nonclustered Redis 7.1, primary/replica, Multi-AZ automatic
 failover, TLS required, encryption at rest, seven-day snapshots and prevent_destroy.
 Credentials must already exist in **two distinct** Secrets Manager secrets, encoded
 as JSON `{ "username": "...", "password": "..." }`. Worker username defaults to
@@ -164,6 +174,72 @@ nonclustered Redis, Multi-AZ replica, verified TLS/auth, exact host/port and a s
 read-only exporter ACL secret. This module adds exact task-SG ingress/egress rules
 on that explicitly supplied group. Serverless/cluster-mode targets are unsupported.
 Redis remains available at zero scan workers.
+
+### Redis as an ECS service
+
+Set `ecs_redis` in the module call to provision a singleton Redis service instead
+of ElastiCache. The service uses Fargate independently of whether the scan
+workers use Fargate or EC2.
+
+```hcl
+ecs_redis = {
+  image_digest   = var.redis_image_digest
+  dns_namespace  = "outpost-cache.example.com"
+  tls_secret_arn = var.redis_tls_secret_arn
+  start          = false
+}
+```
+
+- Supply a pinned Linux AMD64 Redis image from your approved private ECR mirror.
+  It must include TLS-enabled `redis-server` and `redis-cli`, a POSIX shell,
+  `flock`, `sha256sum`, `chown`, `chmod`, and a CA trust bundle. Verify these
+  in the exact image digest. For a Debian-based image, keep `ca-certificates`
+  in the final stage so the Redis CLI health check can validate TLS.
+- Supply a DNS namespace reserved for this installation. The module creates a
+  Cloud Map private zone using a CloudFormation stack so both the record TTL
+  and the negative-cache TTL are set to 10 seconds. It advertises
+  `redis.<dns_namespace>` only inside the VPC. Enable the VPC's DNS support
+  and DNS hostnames for private discovery and EFS.
+  Put the PEM certificate chain and key in a separate Secrets Manager JSON
+  secret with `certificate` and `private_key` fields. The certificate must cover
+  the exact hostname and chain to a CA trusted by the released runtime and
+  Redis image. For customer-KMS-encrypted secrets, supply the exact key ARNs in
+  `ecs_redis.secret_kms_key_arns` and grant the execution role on those keys.
+- Use the existing worker and exporter credential secrets. Set their usernames
+  to match `redis_worker_user_id` and `redis_exporter_user_id`. The task writes
+  only hashed ACL passwords and ephemeral TLS files to a separate task-local
+  mount. Both Redis backends use the same worker and read-only exporter ACLs.
+- Apply with `activated = false` and `start = false`. If needed, onboard the
+  `ecs_redis_execution_role_arn` for the exact mirror. In endpoint-only VPCs,
+  admit `ecs_redis_security_group_id` on the required ECR, Secrets Manager and
+  CloudWatch Logs interface endpoints. Allow DNS to propagate after creating
+  the EFS mount targets. AWS recommends allowing 90 seconds. Then set
+  `start = true` and apply while scans remain held. Verify the endpoint from a worker before
+  activating. Holding scans later keeps Redis up while `start` stays true.
+- Update the credential/certificate secrets under a planned maintenance window
+  and increment `redis_auth_secret_version` for a fresh task revision. ECS
+  loads startup secrets on replacement. Establish client reconnect behavior
+  before using password rotation on a live deployment.
+- The encrypted EFS filesystem and AOF survive task replacement. The service
+  stops the old task before starting a new one, and the process takes an
+  exclusive writer lock on EFS. AOF synchronizes acknowledged writes, and
+  Redis uses `noeviction`. Redis is temporarily unavailable during replacement.
+  Plan capacity for AOF rewriting and qualify EFS latency at the expected load.
+- Use a new installation when selecting a backend. Endpoint changes do not
+  migrate existing Redis queue state. ElastiCache and EFS retain their
+  destruction protection.
+
+The local restart regression uses the task script, TLS, an authenticated Kombu
+broker and real Redis. It checks a waiting scan chunk and one recorded as
+unacknowledged at the time of hard shutdown. It uses a short visibility
+timeout and invokes Kombu redelivery explicitly. A crash between Kombu's queue
+pop and its reservation write still depends on the scan orchestrator's retry.
+For live acceptance, replace Redis mid-scan on the target ECS installation and
+verify that the new task mounts the same EFS access point, resumes queue
+consumption, and the original root and outputs complete. Check the exporter
+recovers with the same route and ACL.
+
+[Persistent storage on ECS](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/efs-volumes.html) · [EFS DNS propagation](https://docs.aws.amazon.com/efs/latest/ug/mounting-fs-mount-cmd-dns-name.html) · [Redis persistence](https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/)
 
 Tasks never receive public IPs or inbound service ports. Subnet VPC, public-IP
 mapping and two-AZ coverage are checked. Supply private routing/NAT/endpoints to
@@ -262,7 +338,12 @@ This permanently removes derived batch versions; source objects, inventory
 Delta files and durable plans, journals and publication receipts are outside the
 grant. The option defaults to false and requires an enabled Data Pipelines pool.
 Qualify the exact version-deletion and retry behavior before enabling it.
-
+On a versioned outbox with cleanup disabled, a finalizer can commit and publish
+its inventory table while its delivery stays retryable because the temporary
+batch version is retained. Periodic ECS recovery also claims work to revisit the
+retained batches, so an empty Pub/Sub subscription alone does not establish
+idle. Verify finalizer acknowledgments and scale-in as well as publication when
+qualifying this configuration.
 
 `pubsub_global_zero_subscriptions` is a default-empty, exporter-only allowlist of
 exact enabled Pub/Sub subscriptions. Opted-in routes may use a fresh explicit

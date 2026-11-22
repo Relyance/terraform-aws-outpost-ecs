@@ -8,6 +8,7 @@ provider "aws" {
   skip_credentials_validation = true
   skip_metadata_api_check     = true
   skip_requesting_account_id  = true
+  endpoints { secretsmanager = "http://127.0.0.1:1" }
 }
 mock_provider "aws" {
   mock_data "aws_ami" { defaults = { id = "ami-12345678", architecture = "x86_64", root_device_type = "ebs", root_device_name = "/dev/xvda" } }
@@ -313,4 +314,85 @@ run "reject_invalid_fargate_memory" {
     capacity = {}
   }
   expect_failures = [terraform_data.contract]
+}
+
+run "ecs_redis_is_explicit_and_uses_its_persistent_endpoint" {
+  command = plan
+  variables {
+    provision_redis = true
+    ecs_redis = {
+      image_digest   = "111111111111.dkr.ecr.us-west-2.amazonaws.com/redis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      dns_namespace  = "ecs-fixture.example.com"
+      tls_secret_arn = "arn:aws:secretsmanager:us-west-2:111111111111:secret:ecs-redis-tls-AbCdEf"
+    }
+  }
+  assert {
+    condition     = length(aws_elasticache_replication_group.main) == 0 && length(aws_efs_file_system.redis) == 1 && aws_efs_file_system.redis[0].encrypted
+    error_message = "Only the opt-in backend and its durable encrypted filesystem should be created."
+  }
+  assert {
+    condition     = output.installation_facts.redis.host == "redis.ecs-fixture.example.com" && alltrue([for task in concat(values(aws_ecs_task_definition.worker), [aws_ecs_task_definition.exporter]) : contains([for env in jsondecode(task.container_definitions)[0].environment : env.value if env.name == "REDIS_HOST"], output.installation_facts.redis.host)])
+    error_message = "Every runtime must resolve the same private hosted Redis endpoint."
+  }
+  assert {
+    condition     = aws_ecs_service.redis[0].desired_count == 0 && aws_ecs_service.redis[0].deployment_maximum_percent == 100 && aws_ecs_service.redis[0].deployment_minimum_healthy_percent == 0
+    error_message = "Redis stays stopped until its dependency is started and uses stop-before-start replacement."
+  }
+  assert {
+    condition     = one([for mount in aws_ecs_task_definition.redis[0].volume : mount.efs_volume_configuration[0].transit_encryption if mount.name == "data"]) == "ENABLED"
+    error_message = "Redis data must reside on the encrypted persistent mount."
+  }
+  assert {
+    condition     = can(regex("^[a-zA-Z0-9 ._-]{1,255}$", aws_security_group.redis_efs[0].description))
+    error_message = "The EFS security group description must use EC2-compatible characters."
+  }
+  assert {
+    condition = (
+      jsondecode(aws_cloudformation_stack.redis_dns[0].template_body).Resources.RedisNamespace.Properties.Properties.DnsProperties.SOA.TTL == 10 &&
+      one(aws_service_discovery_service.redis[0].dns_config[0].dns_records).ttl == 10 &&
+      one(aws_service_discovery_service.redis[0].health_check_custom_config).failure_threshold == 1
+    )
+    error_message = "Discovery must track ECS task health and avoid long DNS caching during singleton replacement."
+  }
+}
+
+run "supplied_redis_keeps_its_endpoint_without_ecs_resources" {
+  command = plan
+  assert {
+    condition     = length(aws_ecs_service.redis) == 0 && length(aws_efs_file_system.redis) == 0 && output.installation_facts.redis.host == var.installation_facts.redis.host
+    error_message = "Existing supplied Redis URLs must keep their original configuration."
+  }
+}
+
+run "ecs_redis_requires_start_before_scan_activation" {
+  command = plan
+  variables {
+    activated = true
+    ecs_redis = {
+      image_digest   = "111111111111.dkr.ecr.us-west-2.amazonaws.com/redis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      dns_namespace  = "ecs-fixture.example.com"
+      tls_secret_arn = "arn:aws:secretsmanager:us-west-2:111111111111:secret:ecs-redis-tls-AbCdEf"
+    }
+  }
+  expect_failures = [terraform_data.contract]
+}
+
+run "ecs_redis_runs_independently_of_scan_admission" {
+  command = plan
+  variables {
+    ecs_redis = {
+      image_digest   = "111111111111.dkr.ecr.us-west-2.amazonaws.com/redis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      dns_namespace  = "ecs-fixture.example.com"
+      tls_secret_arn = "arn:aws:secretsmanager:us-west-2:111111111111:secret:ecs-redis-tls-AbCdEf"
+      start          = true
+    }
+  }
+  assert {
+    condition     = aws_ecs_service.redis[0].desired_count == 1 && length(aws_efs_mount_target.redis) == 2 && alltrue([for service in aws_ecs_service.worker : service.desired_count == 0]) && aws_ecs_service.exporter.desired_count == 0
+    error_message = "Holding scans must not stop an already activated Redis service."
+  }
+  assert {
+    condition     = [for statement in jsondecode(aws_iam_role_policy.redis_execution[0].policy).Statement : statement.Resource if contains(statement.Action, "ecr:BatchGetImage")] == ["arn:aws:ecr:us-west-2:111111111111:repository/redis"]
+    error_message = "Redis image-pull access must be scoped to the configured repository."
+  }
 }

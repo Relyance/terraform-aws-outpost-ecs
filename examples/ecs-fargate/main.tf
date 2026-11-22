@@ -12,6 +12,11 @@ variable "installation_facts_path" {
 variable "vpc_id" { type = string }
 variable "private_subnet_ids" { type = set(string) }
 variable "exporter_redis_secret_arn" { type = string }
+variable "ecs_redis" {
+  description = "Pass the optional ECS Redis settings documented by the module."
+  type        = any
+  default     = null
+}
 variable "fargate_ephemeral_storage_gib" {
   description = "Optional override for total Fargate task ephemeral storage."
   type        = number
@@ -36,7 +41,10 @@ module "ecs" {
   manage_cluster_capacity_association = var.create_cluster
   exporter_redis_secret_arn           = var.exporter_redis_secret_arn
   fargate_ephemeral_storage_gib       = var.fargate_ephemeral_storage_gib
+  ecs_redis                           = var.ecs_redis
   activated                           = false
 }
 
 output "installation_facts" { value = module.ecs.installation_facts }
+output "ecs_redis_execution_role_arn" { value = module.ecs.ecs_redis_execution_role_arn }
+output "ecs_redis_security_group_id" { value = module.ecs.ecs_redis_security_group_id }

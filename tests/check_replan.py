@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Check real lifecycle behavior from synthetic native-test state, without AWS.
 
-All AWS endpoints use a bounded loopback-only STS/EC2 fixture, credentials synthetic, refresh disabled, and
-provision_redis=false. The state originates only in the module's native mock test.
+All AWS endpoints used by the plans are bounded loopback fixtures. Credentials
+and secret values are synthetic. The state originates only in native mock tests.
 It never loads user state, credentials or installation inputs. Run with Python3 and
 TERRAFORM_BIN pointing at Terraform >=1.11 (qualified with 1.13.4).
 """
@@ -41,9 +41,18 @@ class MetadataFixture(BaseHTTPRequestHandler):
         pass
 
     def do_POST(self):
-        params = parse_qs(self.rfile.read(int(self.headers["Content-Length"])).decode())
+        request = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        content_type = "text/xml"
+        params = parse_qs(request)
         action = params.get("Action", [""])[0]
-        if action == "GetCallerIdentity":
+        if self.headers.get("X-Amz-Target") == "secretsmanager.GetSecretValue":
+            arn = json.loads(request)["SecretId"]
+            if arn not in {facts["redis"]["secret_arn"], exporter_secret_arn}:
+                self.send_error(400, "Unadmitted secret reference")
+                return
+            body = json.dumps({"ARN": arn, "SecretString": json.dumps({"password": "synthetic-redis-password"})})
+            content_type = "application/x-amz-json-1.1"
+        elif action == "GetCallerIdentity":
             body = '<GetCallerIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><GetCallerIdentityResult><Account>111111111111</Account><Arn>arn:aws:iam::111111111111:role/synthetic-test</Arn><UserId>synthetic</UserId></GetCallerIdentityResult><ResponseMetadata><RequestId>synthetic</RequestId></ResponseMetadata></GetCallerIdentityResponse>'
         elif action == "DescribeSubnets":
             subnet = params.get("SubnetId.1", [""])[0]
@@ -56,11 +65,12 @@ class MetadataFixture(BaseHTTPRequestHandler):
             self.send_error(400, "Unadmitted action")
             return
         self.send_response(200)
-        self.send_header("Content-Type", "text/xml")
+        self.send_header("Content-Type", content_type)
         self.end_headers()
         self.wfile.write(body.encode())
 
 
+exporter_secret_arn = "arn:aws:secretsmanager:us-west-2:111111111111:secret:ecs-fixture-exporter-AbCdEf"
 server = ThreadingHTTPServer(("127.0.0.1", 0), MetadataFixture)
 threading.Thread(target=server.serve_forever, daemon=True).start()
 endpoint = f"http://127.0.0.1:{server.server_address[1]}"
@@ -156,5 +166,14 @@ assert json.loads(definition["before"]["container_definitions"])[0]["image"] == 
 assert "create" in definition["actions"], "New image digest did not replace task definition"
 assert json.loads(definition["after"]["container_definitions"])[0]["image"] == facts["pools"][0]["image_digest"]
 print("PASS: ordinary replan preserves autoscaled2; new digest changes task definition and preserves2")
+
+# Omit the choice entirely to exercise the shipping defaults, including actual
+# ephemeral Secrets Manager reads. Refresh stays disabled and all reads are local.
+(WORK / "main.tf").write_text(main_config.replace("http://127.0.0.1:9", endpoint).replace("  provision_redis = false\n", ""))
+default = plan("default-elasticache.tfplan")
+elasticache = change(default, "module.ecs.aws_elasticache_replication_group.main[0]")["after"]
+assert elasticache["automatic_failover_enabled"] and elasticache["transit_encryption_enabled"]
+assert not any(resource["type"] == "aws_efs_file_system" for resource in default["resource_changes"])
+print("PASS: omitting the Redis backend still provisions Multi-AZ TLS ElastiCache alone")
 
 server.shutdown()

@@ -13,3 +13,13 @@ output "exporter_task_role_arn" { value = local.facts.exporter.task_role_arn }
 output "capacity_provider_names" { value = [for p in values(local.pools) : p.capacity_provider] }
 output "task_security_group_id" { value = aws_security_group.task.id }
 output "activation_state" { value = var.activated ? "active" : "held" }
+
+output "ecs_redis_execution_role_arn" {
+  description = "Opt-in Redis task execution role to onboard to the Redis ECR repository before starting the service."
+  value       = try(aws_iam_role.redis_execution[0].arn, null)
+}
+
+output "ecs_redis_security_group_id" {
+  description = "Opt-in Redis ENI security group for private endpoint access."
+  value       = local.provision_ecs_redis ? aws_security_group.redis[0].id : null
+}
